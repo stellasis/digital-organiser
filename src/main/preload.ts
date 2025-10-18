@@ -2,6 +2,8 @@
 /* eslint no-unused-vars: off */
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
 import type { DirectorySnapshot } from '../common/fileTypes';
+import type { Snapshot } from '../types/snapshot';
+import type { Diff } from '../types/diff';
 
 export type Channels = 'ipc-example';
 
@@ -29,6 +31,17 @@ const electronHandler = {
     },
     scanDirectory(directoryPath: string): Promise<DirectorySnapshot> {
       return ipcRenderer.invoke('scanner:scanDirectory', directoryPath);
+    },
+  },
+  sandbox: {
+    requestSnapshot(rootPath: string): Promise<Snapshot> {
+      return ipcRenderer.invoke('sandbox:requestSnapshot', rootPath);
+    },
+    previewDiff(diff: Diff): Promise<{ ok: boolean; dryRunReport: any }> {
+      return ipcRenderer.invoke('sandbox:previewDiff', diff);
+    },
+    applyDiff(diff: Diff): Promise<{ ok: boolean; results: any[] }> {
+      return ipcRenderer.invoke('sandbox:applyDiff', diff);
     },
   },
 };
