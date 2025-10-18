@@ -10,4 +10,7 @@ export interface SnapshotNode {
 export interface Snapshot {
   rootPath: string;
   tree: SnapshotNode;
+  version?: string;
+  savedAtIso?: string;
+  persistedPath?: string;
 }

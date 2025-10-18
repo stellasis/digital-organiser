@@ -17,6 +17,10 @@ import { resolveHtmlPath } from './util';
 import { scanDirectory } from './scanner';
 import { sandboxSampleSnapshot } from '../common/sandboxSample';
 import type { Diff } from '../types/diff';
+import { generateSnapshot, persistSnapshot } from './snapshotBuilder';
+import { applyDiff as executeDiff, dryRunDiff } from './diffExecutor';
+import type { DiffApplyResponse } from '../types/diff';
+import type { Snapshot } from '../types/snapshot';
 
 class AppUpdater {
   constructor() {
@@ -58,31 +62,82 @@ ipcMain.handle(
   },
 );
 
+const getSnapshotCacheDir = () => {
+  const cacheRoot = app.getPath('userData');
+  return path.join(cacheRoot, 'snapshots');
+};
+
+const decorateSnapshot = async (snapshot: Snapshot) => {
+  const cacheDir = getSnapshotCacheDir();
+  const persisted = await persistSnapshot(snapshot, cacheDir);
+  return {
+    ...snapshot,
+    persistedPath: persisted.filePath,
+    version: snapshot.version ?? persisted.version,
+    savedAtIso: new Date().toISOString(),
+  };
+};
+
 ipcMain.handle('sandbox:requestSnapshot', async (_event, rootPath: string) => {
-  if (rootPath && rootPath !== sandboxSampleSnapshot.rootPath) {
-    return { ...sandboxSampleSnapshot, rootPath };
+  if (!rootPath) {
+    return sandboxSampleSnapshot;
   }
-  return sandboxSampleSnapshot;
+  const snapshot = await generateSnapshot(rootPath);
+  return decorateSnapshot(snapshot);
+});
+
+ipcMain.handle('sandbox:createSnapshot', async (_event, rootPath: string) => {
+  const snapshot = await generateSnapshot(rootPath);
+  return decorateSnapshot(snapshot);
 });
 
 ipcMain.handle('sandbox:previewDiff', async (_event, diff: Diff) => {
+  const report = await dryRunDiff(diff);
   return {
-    ok: true,
-    dryRunReport: {
-      ops: diff.ops,
-    },
+    ok: report.issues.length === 0,
+    dryRunReport: report,
   };
 });
 
-ipcMain.handle('sandbox:applyDiff', async (_event, diff: Diff) => {
-  return {
-    ok: true,
-    results: diff.ops.map((op) => ({
-      type: op.type,
-      kind: op.kind,
-      status: 'mock-applied',
-    })),
-  };
+ipcMain.handle('sandbox:applyDiff', async (_event, diff: Diff): Promise<DiffApplyResponse> => {
+  const browserWindow = BrowserWindow.getFocusedWindow() ?? undefined;
+  const response = await executeDiff(diff, {
+    confirmApply: async (report) => {
+      const detail = report.operations
+        .map((operation) => `• ${operation.description}`)
+        .join('\n');
+      const result = await dialog.showMessageBox(browserWindow, {
+        type: 'question',
+        buttons: ['Apply', 'Cancel'],
+        defaultId: 0,
+        cancelId: 1,
+        title: 'Apply changes',
+        message: `Apply ${report.operations.length} changes to ${report.baseRoot}?`,
+        detail,
+      });
+      return result.response === 0;
+    },
+    onLockedFile: async (filePath) => {
+      const result = await dialog.showMessageBox(browserWindow, {
+        type: 'warning',
+        buttons: ['Retry', 'Skip', 'Abort'],
+        defaultId: 0,
+        cancelId: 2,
+        title: 'File in use',
+        message: 'A file is currently in use.',
+        detail: `${filePath}\nChoose how to proceed.`,
+      });
+      if (result.response === 0) return 'retry';
+      if (result.response === 1) return 'skip';
+      return 'abort';
+    },
+    generateSnapshot: (rootPath) => generateSnapshot(rootPath),
+    persistSnapshot: async (snapshot) => {
+      const decorated = await decorateSnapshot(snapshot);
+      return { filePath: decorated.persistedPath ?? '', version: decorated.version ?? '' };
+    },
+  });
+  return response;
 });
 
 if (process.env.NODE_ENV === 'production') {
