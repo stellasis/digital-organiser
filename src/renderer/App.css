@@ -1,62 +1,147 @@
-/*
- * @NOTE: Prepend a `~` to css file paths that are in your node_modules
- *        See https://github.com/webpack-contrib/sass-loader#imports
- */
 body {
-  position: relative;
-  color: white;
-  height: 100vh;
-  background: linear-gradient(
-    200.96deg,
-    #fedc2a -29.09%,
-    #dd5789 51.77%,
-    #7a2c9e 129.35%
-  );
-  font-family: sans-serif;
-  overflow-y: hidden;
-  display: flex;
-  justify-content: center;
-  align-items: center;
+  margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    sans-serif;
+  background: #f6f8fb;
+  color: #0f172a;
 }
 
-button {
-  background-color: white;
-  padding: 10px 20px;
-  border-radius: 10px;
+.App {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 32px 40px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px;
+  padding: 24px;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 12px 32px -24px rgba(15, 23, 42, 0.5);
+}
+
+.app-header h1 {
+  margin: 0 0 8px;
+  font-size: 1.75rem;
+}
+
+.app-header p {
+  margin: 0;
+  line-height: 1.5;
+  color: #475569;
+}
+
+.app-header button {
+  align-self: center;
+  background: #2563eb;
+  color: #ffffff;
   border: none;
-  appearance: none;
-  font-size: 1.3rem;
-  box-shadow: 0px 8px 28px -6px rgba(24, 39, 75, 0.12),
-    0px 18px 88px -4px rgba(24, 39, 75, 0.14);
-  transition: all ease-in 0.1s;
+  border-radius: 12px;
+  padding: 12px 20px;
+  font-size: 1rem;
+  font-weight: 600;
   cursor: pointer;
-  opacity: 0.9;
+  transition: background 0.2s ease, transform 0.2s ease;
 }
 
-button:hover {
-  transform: scale(1.05);
-  opacity: 1;
+.app-header button[disabled] {
+  cursor: progress;
+  opacity: 0.7;
 }
 
-li {
-  list-style: none;
+.app-header button:not([disabled]):hover {
+  background: #1d4ed8;
+  transform: translateY(-1px);
 }
 
-a {
-  text-decoration: none;
-  height: fit-content;
-  width: fit-content;
-  margin: 10px;
+.app-alert {
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: rgba(248, 113, 113, 0.14);
+  border-left: 4px solid #ef4444;
+  color: #991b1b;
 }
 
-a:hover {
-  opacity: 1;
-  text-decoration: none;
-}
-
-.Hello {
+.snapshot {
   display: flex;
-  justify-content: center;
-  align-items: center;
-  margin: 20px 0;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.snapshot-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.snapshot-summary > div {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.05);
+}
+
+.snapshot-summary .label {
+  font-size: 0.85rem;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.snapshot-path {
+  font-size: 0.95rem;
+  word-break: break-all;
+}
+
+.file-table-wrapper {
+  overflow: auto;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px -18px rgba(15, 23, 42, 0.6);
+}
+
+.file-table-wrapper table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 560px;
+}
+
+.file-table-wrapper th,
+.file-table-wrapper td {
+  padding: 12px 16px;
+  text-align: left;
+}
+
+.file-table-wrapper thead {
+  background: #0f172a;
+  color: #ffffff;
+}
+
+.file-table-wrapper tbody tr:nth-child(even) {
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.file-table-wrapper tbody tr:hover {
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.empty-state {
+  text-align: center;
+  color: #475569;
+  background: #ffffff;
+  padding: 48px 32px;
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.05);
+}
+
+code {
+  font-family: 'Fira Code', 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
 }

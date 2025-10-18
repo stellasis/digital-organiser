@@ -9,11 +9,12 @@
  * `./src/main.js` using webpack. This gives us some performance wins.
  */
 import path from 'path';
-import { app, BrowserWindow, shell, ipcMain } from 'electron';
+import { app, BrowserWindow, shell, ipcMain, dialog } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import log from 'electron-log';
 import MenuBuilder from './menu';
 import { resolveHtmlPath } from './util';
+import { scanDirectory } from './scanner';
 
 class AppUpdater {
   constructor() {
@@ -30,6 +31,30 @@ ipcMain.on('ipc-example', async (event, arg) => {
   console.log(msgTemplate(arg));
   event.reply('ipc-example', msgTemplate('pong'));
 });
+
+ipcMain.handle('dialog:selectDirectory', async () => {
+  const browserWindow = BrowserWindow.getFocusedWindow() ?? undefined;
+  const result = await dialog.showOpenDialog(browserWindow, {
+    properties: ['openDirectory'],
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+
+  return result.filePaths[0];
+});
+
+ipcMain.handle(
+  'scanner:scanDirectory',
+  async (_event, directoryPath: string) => {
+    if (!directoryPath) {
+      return { rootPath: '', files: [] };
+    }
+
+    return scanDirectory(directoryPath);
+  },
+);
 
 if (process.env.NODE_ENV === 'production') {
   const sourceMapSupport = require('source-map-support');

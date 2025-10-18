@@ -1,6 +1,7 @@
 // Disable no-unused-vars, broken for spread args
 /* eslint no-unused-vars: off */
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
+import type { DirectorySnapshot } from '../common/fileTypes';
 
 export type Channels = 'ipc-example';
 
@@ -20,6 +21,14 @@ const electronHandler = {
     },
     once(channel: Channels, func: (...args: unknown[]) => void) {
       ipcRenderer.once(channel, (_event, ...args) => func(...args));
+    },
+  },
+  fileSystem: {
+    selectDirectory(): Promise<string | null> {
+      return ipcRenderer.invoke('dialog:selectDirectory');
+    },
+    scanDirectory(directoryPath: string): Promise<DirectorySnapshot> {
+      return ipcRenderer.invoke('scanner:scanDirectory', directoryPath);
     },
   },
 };
