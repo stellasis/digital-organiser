@@ -15,6 +15,8 @@ import log from 'electron-log';
 import MenuBuilder from './menu';
 import { resolveHtmlPath } from './util';
 import { scanDirectory } from './scanner';
+import { sandboxSampleSnapshot } from '../common/sandboxSample';
+import type { Diff } from '../types/diff';
 
 class AppUpdater {
   constructor() {
@@ -55,6 +57,33 @@ ipcMain.handle(
     return scanDirectory(directoryPath);
   },
 );
+
+ipcMain.handle('sandbox:requestSnapshot', async (_event, rootPath: string) => {
+  if (rootPath && rootPath !== sandboxSampleSnapshot.rootPath) {
+    return { ...sandboxSampleSnapshot, rootPath };
+  }
+  return sandboxSampleSnapshot;
+});
+
+ipcMain.handle('sandbox:previewDiff', async (_event, diff: Diff) => {
+  return {
+    ok: true,
+    dryRunReport: {
+      ops: diff.ops,
+    },
+  };
+});
+
+ipcMain.handle('sandbox:applyDiff', async (_event, diff: Diff) => {
+  return {
+    ok: true,
+    results: diff.ops.map((op) => ({
+      type: op.type,
+      kind: op.kind,
+      status: 'mock-applied',
+    })),
+  };
+});
 
 if (process.env.NODE_ENV === 'production') {
   const sourceMapSupport = require('source-map-support');
