@@ -240,15 +240,27 @@ describe('Dry-run & apply contracts', () => {
     const store = createSandboxStore({
       previewDiff: async () => ({
         ok: true,
-        dryRunReport: { ops: diff.ops },
+        dryRunReport: {
+          baseRoot: diff.baseRoot,
+          rootName: 'Projects',
+          operations: diff.ops.map((op) => ({
+            op,
+            targetPath: op.type === 'delete' ? op.atPath : '',
+            description: `${op.type}:${op.kind}`,
+            precondition: 'ok',
+          })),
+          issues: [],
+        },
       }),
       applyDiff: async () => ({
         ok: false,
         results: [
           {
-            id: 'n-6',
             kind: 'file',
-            error: 'Permission denied',
+            status: 'failed',
+            targetPath: 'Projects/package.json',
+            type: 'delete',
+            message: 'Permission denied',
           },
         ],
       }),
@@ -257,14 +269,14 @@ describe('Dry-run & apply contracts', () => {
     store.getState().setTree(tree);
     const preview = await store.getState().previewCurrentDiff();
     expect(preview.ok).toBe(true);
-    expect(preview.dryRunReport.ops[0].kind).toBe('file');
+    expect(preview.dryRunReport.operations[0].op.kind).toBe('file');
 
     const result = await store.getState().applyCurrentDiff();
     expect(result.ok).toBe(false);
     expect(result.results[0]).toMatchObject({
-      id: 'n-6',
       kind: 'file',
-      error: 'Permission denied',
+      message: 'Permission denied',
+      status: 'failed',
     });
   });
 });

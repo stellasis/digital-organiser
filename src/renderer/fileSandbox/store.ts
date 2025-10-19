@@ -1,22 +1,30 @@
 import { buildSandboxTree } from './tree';
 import { generateDiff } from './diff';
 import type { Snapshot } from '../../types/snapshot';
-import type { Diff } from '../../types/diff';
+import type {
+  Diff,
+  DiffApplyResponse,
+  DiffDryRunReport,
+} from '../../types/diff';
 import type { SandboxTree } from './tree';
 
 export interface SandboxServices {
   requestSnapshot?: (rootPath: string) => Promise<Snapshot>;
-  previewDiff: (diff: Diff) => Promise<{ ok: boolean; dryRunReport: any }>;
-  applyDiff: (diff: Diff) => Promise<{ ok: boolean; results: any[] }>;
+  createSnapshot?: (rootPath: string) => Promise<Snapshot>;
+  previewDiff: (diff: Diff) => Promise<{ ok: boolean; dryRunReport: DiffDryRunReport }>;
+  applyDiff: (diff: Diff) => Promise<DiffApplyResponse>;
 }
 
 export interface SandboxState {
   tree: SandboxTree | null;
   diff: Diff | null;
+  rootPath: string | null;
+  snapshotVersion: string | null;
+  snapshotFile: string | null;
   setTree: (tree: SandboxTree) => void;
   loadSnapshot: (snapshot: Snapshot) => void;
-  previewCurrentDiff: () => Promise<{ ok: boolean; dryRunReport: any }>;
-  applyCurrentDiff: () => Promise<{ ok: boolean; results: any[] }>;
+  previewCurrentDiff: () => Promise<{ ok: boolean; dryRunReport: DiffDryRunReport }>;
+  applyCurrentDiff: () => Promise<DiffApplyResponse>;
 }
 
 export interface SandboxStore {
@@ -29,12 +37,21 @@ export const createSandboxStore = (services: SandboxServices): SandboxStore => {
   let state: SandboxState = {
     tree: null,
     diff: null,
+    rootPath: null,
+    snapshotVersion: null,
+    snapshotFile: null,
     setTree(tree) {
       update({ tree });
     },
     loadSnapshot(snapshot) {
       const tree = buildSandboxTree(snapshot);
-      update({ tree, diff: null });
+      update({
+        tree,
+        diff: null,
+        rootPath: snapshot.rootPath,
+        snapshotVersion: snapshot.version ?? null,
+        snapshotFile: snapshot.persistedPath ?? null,
+      });
     },
     async previewCurrentDiff() {
       if (!state.tree) throw new Error('No tree loaded');
@@ -45,7 +62,11 @@ export const createSandboxStore = (services: SandboxServices): SandboxStore => {
     async applyCurrentDiff() {
       const diff = state.diff ?? (state.tree ? generateDiff(state.tree) : null);
       if (!diff) throw new Error('No diff computed');
-      return services.applyDiff(diff);
+      const result = await services.applyDiff(diff);
+      if (result.snapshot) {
+        state.loadSnapshot(result.snapshot);
+      }
+      return result;
     },
   };
 

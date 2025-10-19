@@ -3,7 +3,7 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
 import type { DirectorySnapshot } from '../common/fileTypes';
 import type { Snapshot } from '../types/snapshot';
-import type { Diff } from '../types/diff';
+import type { Diff, DiffApplyResponse, DiffDryRunReport } from '../types/diff';
 
 export type Channels = 'ipc-example';
 
@@ -37,10 +37,13 @@ const electronHandler = {
     requestSnapshot(rootPath: string): Promise<Snapshot> {
       return ipcRenderer.invoke('sandbox:requestSnapshot', rootPath);
     },
-    previewDiff(diff: Diff): Promise<{ ok: boolean; dryRunReport: any }> {
+    createSnapshot(rootPath: string): Promise<Snapshot> {
+      return ipcRenderer.invoke('sandbox:createSnapshot', rootPath);
+    },
+    previewDiff(diff: Diff): Promise<{ ok: boolean; dryRunReport: DiffDryRunReport }> {
       return ipcRenderer.invoke('sandbox:previewDiff', diff);
     },
-    applyDiff(diff: Diff): Promise<{ ok: boolean; results: any[] }> {
+    applyDiff(diff: Diff): Promise<DiffApplyResponse> {
       return ipcRenderer.invoke('sandbox:applyDiff', diff);
     },
   },

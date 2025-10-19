@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { DragEvent, MouseEvent, ReactElement } from 'react';
-import type { Diff } from '../../types/diff';
+import type {
+  Diff,
+  DiffApplyResponse,
+  DiffDryRunPrecondition,
+  DiffDryRunReport,
+} from '../../types/diff';
 import type { Snapshot } from '../../types/snapshot';
 import {
   SandboxTree,
@@ -27,8 +32,9 @@ interface MoveDialogState {
 
 interface SandboxBridge {
   requestSnapshot?: (rootPath: string) => Promise<Snapshot>;
-  previewDiff?: (diff: Diff) => Promise<{ ok: boolean; dryRunReport: any }>;
-  applyDiff?: (diff: Diff) => Promise<{ ok: boolean; results: any[] }>;
+  createSnapshot?: (rootPath: string) => Promise<Snapshot>;
+  previewDiff?: (diff: Diff) => Promise<{ ok: boolean; dryRunReport: DiffDryRunReport }>;
+  applyDiff?: (diff: Diff) => Promise<DiffApplyResponse>;
 }
 
 const getSandboxBridge = (): SandboxBridge | null => {
@@ -47,12 +53,36 @@ const useSandboxServices = () => {
   return useMemo(
     () => ({
       requestSnapshot: bridge?.requestSnapshot,
+      createSnapshot: bridge?.createSnapshot,
       previewDiff: async (diff: Diff) =>
-        (bridge?.previewDiff ? bridge.previewDiff(diff) : Promise.resolve({ ok: true, dryRunReport: { ops: diff.ops } })),
+        (bridge?.previewDiff
+          ? bridge.previewDiff(diff)
+          : Promise.resolve({
+              ok: true,
+              dryRunReport: {
+                baseRoot: '',
+                rootName: sampleSnapshot.tree.name,
+                operations: diff.ops.map((op) => ({
+                  op,
+                  targetPath: '',
+                  description: `${op.type} ${op.kind}`,
+                  precondition: 'ok' as DiffDryRunPrecondition,
+                })),
+                issues: [],
+              },
+            })),
       applyDiff: async (diff: Diff) =>
         (bridge?.applyDiff
           ? bridge.applyDiff(diff)
-          : Promise.resolve({ ok: true, results: diff.ops.map((op) => ({ op })) })),
+          : Promise.resolve({
+              ok: true,
+              results: diff.ops.map((op) => ({
+                type: op.type,
+                kind: op.kind,
+                status: 'applied' as const,
+                targetPath: `${op.type}:${op.kind}`,
+              })),
+            })),
     }),
     [bridge],
   );
@@ -61,18 +91,29 @@ const useSandboxServices = () => {
 const useSandboxStoreState = (store = createSandboxStore(useSandboxServices())) => {
   const [tree, setTree] = useState<SandboxTree | null>(store.getState().tree);
   const [diff, setDiff] = useState<Diff | null>(store.getState().diff);
+  const [rootPath, setRootPath] = useState<string | null>(store.getState().rootPath);
+  const [snapshotVersion, setSnapshotVersion] = useState<string | null>(
+    store.getState().snapshotVersion,
+  );
+  const [snapshotFile, setSnapshotFile] = useState<string | null>(store.getState().snapshotFile);
 
   useEffect(() => {
     const unsubscribe = store.subscribe((next) => {
       setTree(next.tree);
       setDiff(next.diff);
+      setRootPath(next.rootPath);
+      setSnapshotVersion(next.snapshotVersion);
+      setSnapshotFile(next.snapshotFile);
     });
     setTree(store.getState().tree);
     setDiff(store.getState().diff);
+    setRootPath(store.getState().rootPath);
+    setSnapshotVersion(store.getState().snapshotVersion);
+    setSnapshotFile(store.getState().snapshotFile);
     return unsubscribe;
   }, [store]);
 
-  return { tree, diff, store };
+  return { tree, diff, store, rootPath, snapshotVersion, snapshotFile };
 };
 
 const buildFolderOptions = (tree: SandboxTree | null): { id: string; path: string }[] => {
@@ -272,7 +313,9 @@ const renderTree = (
 const FileSandboxApp = () => {
   const services = useSandboxServices();
   const storeInstance = useMemo(() => createSandboxStore(services), [services]);
-  const { tree, store } = useSandboxStoreState(storeInstance);
+  const { tree, store, rootPath, snapshotVersion, snapshotFile } = useSandboxStoreState(
+    storeInstance,
+  );
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -486,6 +529,36 @@ const FileSandboxApp = () => {
     }
   };
 
+  const handleCreateSnapshot = async (targetRoot?: string | null) => {
+    const effectiveRoot = targetRoot ?? store.getState().rootPath ?? tree?.snapshotRootPath ?? null;
+    if (!effectiveRoot) {
+      setError('Select a root directory before creating a snapshot.');
+      return;
+    }
+    try {
+      const snapshotPromise =
+        services.createSnapshot?.(effectiveRoot) ??
+        services.requestSnapshot?.(effectiveRoot) ??
+        Promise.resolve({ ...sampleSnapshot, rootPath: effectiveRoot });
+      const resolved = await snapshotPromise;
+      store.getState().loadSnapshot(resolved);
+      setError(null);
+    } catch (snapshotError) {
+      setError(snapshotError instanceof Error ? snapshotError.message : String(snapshotError));
+    }
+  };
+
+  const handleSelectRootDirectory = async () => {
+    const electron = window.electron as unknown as {
+      fileSystem?: { selectDirectory?: () => Promise<string | null> };
+    } | null;
+    const root = await electron?.fileSystem?.selectDirectory?.();
+    if (!root) {
+      return;
+    }
+    await handleCreateSnapshot(root);
+  };
+
   const liveDiff = useMemo(() => (tree ? generateDiff(cloneTree(tree)) : null), [tree]);
   const folderOptions = useMemo(() => buildFolderOptions(tree), [tree]);
 
@@ -553,15 +626,26 @@ const FileSandboxApp = () => {
           </p>
         </div>
         <div className="header-actions">
+          <button type="button" onClick={handleSelectRootDirectory}>
+            Select root directory
+          </button>
+          <button type="button" onClick={() => handleCreateSnapshot()} disabled={!tree}>
+            Create snapshot
+          </button>
           <button type="button" onClick={() => store.getState().loadSnapshot(sampleSnapshot)}>
             Load sample snapshot
           </button>
-          <button type="button" onClick={() => handlePreviewDiff()}>
+          <button type="button" onClick={handlePreviewDiff}>
             Preview diff
           </button>
-          <button type="button" onClick={() => handleApplyDiff()}>
+          <button type="button" onClick={handleApplyDiff}>
             Apply diff
           </button>
+        </div>
+        <div className="sandbox-meta">
+          <span title={rootPath ?? ''}>Root: {rootPath ?? 'Sample sandbox'}</span>
+          <span>Snapshot: {snapshotVersion ?? '—'}</span>
+          {snapshotFile ? <span title={snapshotFile}>Saved to: {snapshotFile}</span> : null}
         </div>
       </header>
       {error && <div className="sandbox-error">{error}</div>}

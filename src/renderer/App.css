@@ -66,6 +66,21 @@ button {
   box-shadow: 0 16px 28px -14px rgba(37, 99, 235, 0.75);
 }
 
+.sandbox-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.9rem;
+  color: #475569;
+}
+
+.sandbox-meta span {
+  max-width: 260px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .sandbox-error {
   margin: 0 48px;
   padding: 12px 16px;

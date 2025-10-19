@@ -1,4 +1,4 @@
-import type { NodeKind } from './snapshot';
+import type { NodeKind, Snapshot } from './snapshot';
 
 export interface RenameOp {
   type: 'rename';
@@ -39,4 +39,46 @@ export interface Diff {
   baseRoot: string;
   ops: DiffOp[];
   meta: { createdAtIso: string; uid: string };
+}
+
+export type DiffDryRunPrecondition =
+  | 'ok'
+  | 'missing-source'
+  | 'target-exists'
+  | 'error';
+
+export interface DiffDryRunOperationReport {
+  op: DiffOp;
+  targetPath: string;
+  description: string;
+  precondition: DiffDryRunPrecondition;
+  message?: string;
+}
+
+export interface DiffDryRunReport {
+  baseRoot: string;
+  rootName: string;
+  operations: DiffDryRunOperationReport[];
+  issues: string[];
+}
+
+export type DiffApplyOperationStatus = 'applied' | 'skipped' | 'failed' | 'aborted';
+
+export interface DiffApplyOperationResult {
+  type: DiffOp['type'];
+  kind: NodeKind;
+  status: DiffApplyOperationStatus;
+  targetPath: string;
+  message?: string;
+}
+
+export interface DiffApplyResponse {
+  ok: boolean;
+  results: DiffApplyOperationResult[];
+  dryRunReport?: DiffDryRunReport;
+  snapshot?: Snapshot;
+  snapshotVersion?: string;
+  snapshotFile?: string;
+  aborted?: boolean;
+  error?: string;
 }
