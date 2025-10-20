@@ -2,6 +2,11 @@ import fs from 'fs/promises';
 import type { Dirent } from 'fs';
 import path from 'path';
 import type { AiSnapshotEntry } from '../../types/ai';
+import {
+  detectSmartStop,
+  readDirectoryEntries,
+  type SmartStopContext,
+} from '../../common/smartStop';
 import { normaliseRelativePath, shouldIgnorePath } from './ignoreRules';
 
 export interface SnapshotStreamOptions {
@@ -18,6 +23,22 @@ interface StackItem {
 const sortEntries = (entries: Dirent[]): Dirent[] =>
   [...entries].sort((a, b) => a.name.localeCompare(b.name));
 
+const isVerboseEnabled = (() => {
+  const value = process.env.AI_LOG_VERBOSE;
+  if (!value) {
+    return false;
+  }
+  const normalised = value.toLowerCase();
+  return !['0', 'false', 'off', 'no'].includes(normalised);
+})();
+
+const verboseLog = (message: string) => {
+  if (isVerboseEnabled) {
+    // eslint-disable-next-line no-console
+    console.log(message);
+  }
+};
+
 export async function* streamSnapshotEntries({
   rootPath,
   ignore = shouldIgnorePath,
@@ -28,6 +49,10 @@ export async function* streamSnapshotEntries({
     throw new Error(`Root path ${resolvedRoot} is not a directory`);
   }
 
+  const smartStopContext: SmartStopContext = {
+    directoryCache: new Map<string, Dirent[]>(),
+  };
+
   const stack: StackItem[] = [
     { absolutePath: resolvedRoot, relativePath: '', depth: 0 },
   ];
@@ -37,7 +62,9 @@ export async function* streamSnapshotEntries({
     if (!current) break;
     const { absolutePath, relativePath, depth } = current;
     const entryStats = await fs.lstat(absolutePath);
-    const name = relativePath ? path.basename(absolutePath) : path.basename(absolutePath) || absolutePath;
+    const name = relativePath
+      ? path.basename(absolutePath)
+      : path.basename(absolutePath) || absolutePath;
 
     if (!entryStats.isDirectory()) {
       yield {
@@ -49,8 +76,17 @@ export async function* streamSnapshotEntries({
       continue;
     }
 
-    const dirEntries = sortEntries(await fs.readdir(absolutePath, { withFileTypes: true }));
-    const filtered = dirEntries.filter((entry) => {
+    const dirEntries = sortEntries(
+      await readDirectoryEntries(absolutePath, smartStopContext),
+    );
+
+    const smartStopMatch = await detectSmartStop({
+      dirPath: absolutePath,
+      entries: dirEntries,
+      context: smartStopContext,
+    });
+
+    const visibleEntries = dirEntries.filter((entry) => {
       if (entry.isSymbolicLink()) {
         return false;
       }
@@ -65,17 +101,38 @@ export async function* streamSnapshotEntries({
       return true;
     });
 
-    const childrenNames = filtered.map((entry) => entry.name);
+    if (smartStopMatch) {
+      const childrenNames = visibleEntries.map((entry) => entry.name);
+      yield {
+        path: relativePath,
+        name,
+        kind: 'folder',
+        depth,
+        children: childrenNames,
+        flags: [smartStopMatch.rule.flag],
+        note: smartStopMatch.rule.note,
+      };
+      verboseLog(
+        `🧠 [SmartScanner] Stop traversal at: ${
+          name || absolutePath
+        } (reason: ${smartStopMatch.rule.flag})`,
+      );
+      continue;
+    }
+
+    const childrenNames = visibleEntries.map((entry) => entry.name);
     yield {
       path: relativePath,
-      name: relativePath ? path.basename(absolutePath) : path.basename(resolvedRoot) || path.basename(absolutePath),
+      name: relativePath
+        ? path.basename(absolutePath)
+        : path.basename(resolvedRoot) || path.basename(absolutePath),
       kind: 'folder',
       depth,
       children: childrenNames,
     };
 
-    for (let index = filtered.length - 1; index >= 0; index -= 1) {
-      const entry = filtered[index];
+    for (let index = visibleEntries.length - 1; index >= 0; index -= 1) {
+      const entry = visibleEntries[index];
       const entryPath = path.join(absolutePath, entry.name);
       const entryRelative = normaliseRelativePath(resolvedRoot, entryPath);
       stack.push({

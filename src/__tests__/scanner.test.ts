@@ -25,6 +25,7 @@ describe('scanDirectory', () => {
 
     expect(snapshot.rootPath).toBe(path.resolve(tempDir));
     expect(snapshot.files).toHaveLength(2);
+    expect(snapshot.files.every((file) => file.type === 'file')).toBe(true);
 
     const relativePaths = snapshot.files
       .map((file) => file.relativePath)
@@ -37,5 +38,6 @@ describe('scanDirectory', () => {
     expect(txtFile).toBeDefined();
     expect(txtFile?.mimeType).toBe('text/plain');
     expect(txtFile?.size).toBeGreaterThan(0);
+    expect(txtFile?.flags).toEqual([]);
   });
 });
