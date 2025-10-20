@@ -108,6 +108,7 @@
     "electron-debug": "^4.1.0",
     "electron-log": "^5.3.2",
     "electron-updater": "^6.3.9",
+    "colorette": "^2.0.20",
     "mime-types": "^2.1.35",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
