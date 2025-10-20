@@ -139,6 +139,120 @@ describe('runAiBatchOrganisation', () => {
     expect(result.summary?.sections).toEqual([{ title: 'Next steps', body: 'Apply diff' }]);
     expect(result.slices).toBe(3);
     expect(result.entries).toBe(3);
+    expect(result.organisationPlan).toBeNull();
+    expect(result.organisationProposal).toBeNull();
+    expect(result.placementResponse).toBeNull();
+  });
+
+  it('runs the placement stage when the model returns a hierarchy proposal', async () => {
+    const payloads: unknown[] = [];
+    const placementPayloads: unknown[] = [];
+    const stage1Response = {
+      state_out: {
+        organisation: {
+          strategy: 'two-stage',
+          stage: 'proposal',
+          version: '2025-01-01',
+          hierarchy: [{ path: 'Learning/' }],
+          placementRequest: {
+            hierarchy: [{ path: 'Learning/' }],
+            unassigned_files: [
+              {
+                path: 'a/a.txt',
+                kind: 'file',
+                display_name: 'a.txt',
+              },
+            ],
+          },
+        },
+      },
+    };
+    const stage2Response = {
+      strategy: 'two-stage',
+      stage: 'placement',
+      version: '2025-01-01',
+      file_mapping: [
+        {
+          src: 'a/a.txt',
+          dst: 'Learning/a.txt',
+        },
+      ],
+      operations: [
+        {
+          kind: 'move',
+          src: 'a/a.txt',
+          dst: 'Learning/a.txt',
+        },
+      ],
+    };
+
+    let stage = 0;
+    const fetchImpl: typeof fetch = async (_url, init) => {
+      const parsed = init?.body ? JSON.parse(init.body as string) : null;
+      if (stage === 0) {
+        payloads.push(parsed);
+        stage = 1;
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify(stage1Response),
+        } as Response;
+      }
+      if (stage === 1) {
+        placementPayloads.push(parsed);
+        stage = 2;
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify(stage2Response),
+        } as Response;
+      }
+      throw new Error('Unexpected request');
+    };
+
+    const result = await runAiBatchOrganisation({
+      rootPath: '/tmp/mock',
+      mode: 'local',
+      freeText: '',
+      fetchImpl,
+      useTwoStagePipeline: true,
+      modelConfigOverride: {
+        model: 'test-model',
+        endpoint: 'http://localhost/test',
+        maxInputTokens: 2000,
+        requestAdapter: (payload) => payload,
+        responseAdapter: (payload) => payload,
+      },
+      entryStreamFactory: buildEntryStream,
+    });
+
+    expect(payloads).toHaveLength(1);
+    expect(placementPayloads).toHaveLength(1);
+    const placementRequest = placementPayloads[0] as {
+      hierarchy: unknown[];
+      unassigned_files: Array<{ path: string }>;
+      meta?: Record<string, unknown>;
+    };
+    expect(Array.isArray(placementRequest.hierarchy)).toBe(true);
+    expect(placementRequest.unassigned_files).toEqual([
+      expect.objectContaining({ path: 'a/a.txt', kind: 'file' }),
+    ]);
+    expect(placementRequest.meta).toMatchObject({
+      root: '/tmp/mock',
+      pipeline: 'two-stage',
+      stage: 'placement',
+      proposal_version: '2025-01-01',
+    });
+
+    expect(result.organisationPlan).not.toBeNull();
+    expect(result.organisationPlan?.strategy).toBe('two-stage');
+    expect(result.organisationPlan && 'file_mapping' in result.organisationPlan
+      ? result.organisationPlan.file_mapping
+      : []).toHaveLength(1);
+    expect(result.organisationProposal).not.toBeNull();
+    expect(result.placementResponse?.file_mapping).toEqual([
+      expect.objectContaining({ src: 'a/a.txt', dst: 'Learning/a.txt' }),
+    ]);
   });
 });
 

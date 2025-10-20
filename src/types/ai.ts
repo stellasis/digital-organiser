@@ -1,4 +1,9 @@
 import type { NodeKind } from './snapshot';
+import type {
+  AiOrganisationPlan,
+  HierarchyProposal,
+  PlacementResponse,
+} from './aiResponseSchema';
 
 export type AiMode = 'production' | 'refinement' | 'local';
 
@@ -72,6 +77,9 @@ export interface AiBatchResult {
   state: AiState;
   summary: AiSummary | null;
   responses: AiBatchResponsePayload[];
+  organisationPlan: AiOrganisationPlan | null;
+  organisationProposal: HierarchyProposal | null;
+  placementResponse?: PlacementResponse | null;
 }
 
 export interface AiOrganiseRequest {
@@ -80,5 +88,12 @@ export interface AiOrganiseRequest {
   freeText?: string;
   constraints?: Record<string, unknown>;
   state?: AiState;
+  /**
+   * When true the orchestrator will run the hierarchy proposal and file placement
+   * stages separately. Large trees automatically opt-in unless overridden.
+   */
+  useTwoStagePipeline?: boolean;
+  /** Optional override for deciding when to auto enable the two-stage flow. */
+  twoStageThreshold?: number;
 }
 
