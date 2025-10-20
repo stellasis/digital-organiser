@@ -12,6 +12,10 @@ export interface AiSnapshotEntry {
   depth: number;
   /** Sorted list of child names for folders. */
   children?: string[];
+  /** Smart stop flags applied to this node. */
+  flags?: string[];
+  /** Optional contextual note about why traversal stopped. */
+  note?: string | null;
 }
 
 export interface AiSnapshotSlice {

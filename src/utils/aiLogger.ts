@@ -74,6 +74,8 @@ const copyEntry = (entry: AiSnapshotEntry): Record<string, unknown> => ({
   kind: entry.kind,
   depth: entry.depth,
   ...(entry.children ? { children: entry.children.slice(0, 8) } : {}),
+  ...(entry.flags?.length ? { flags: entry.flags } : {}),
+  ...(entry.note ? { note: entry.note } : {}),
 });
 
 const buildSlicePreview = (entries: AiSnapshotEntry[]) => {
