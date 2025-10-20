@@ -6,6 +6,7 @@ import type {
   DiffApplyResponse,
   DiffDryRunReport,
 } from '../../types/diff';
+import type { AiBatchResult, AiOrganiseRequest } from '../../types/ai';
 import type { SandboxTree } from './tree';
 
 export interface SandboxServices {
@@ -13,6 +14,7 @@ export interface SandboxServices {
   createSnapshot?: (rootPath: string) => Promise<Snapshot>;
   previewDiff: (diff: Diff) => Promise<{ ok: boolean; dryRunReport: DiffDryRunReport }>;
   applyDiff: (diff: Diff) => Promise<DiffApplyResponse>;
+  organiseWithAi?: (request: AiOrganiseRequest) => Promise<AiBatchResult>;
 }
 
 export interface SandboxState {

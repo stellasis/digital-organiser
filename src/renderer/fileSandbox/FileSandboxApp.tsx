@@ -7,6 +7,7 @@ import type {
   DiffDryRunReport,
 } from '../../types/diff';
 import type { Snapshot } from '../../types/snapshot';
+import type { AiBatchResult, AiOrganiseRequest, AiState } from '../../types/ai';
 import {
   SandboxTree,
   SandboxNode,
@@ -35,6 +36,7 @@ interface SandboxBridge {
   createSnapshot?: (rootPath: string) => Promise<Snapshot>;
   previewDiff?: (diff: Diff) => Promise<{ ok: boolean; dryRunReport: DiffDryRunReport }>;
   applyDiff?: (diff: Diff) => Promise<DiffApplyResponse>;
+  organiseWithAi?: (request: AiOrganiseRequest) => Promise<AiBatchResult>;
 }
 
 const getSandboxBridge = (): SandboxBridge | null => {
@@ -83,6 +85,23 @@ const useSandboxServices = () => {
                 targetPath: `${op.type}:${op.kind}`,
               })),
             })),
+      organiseWithAi: bridge?.organiseWithAi
+        ? (request: AiOrganiseRequest) => bridge.organiseWithAi!(request)
+        : async (request: AiOrganiseRequest): Promise<AiBatchResult> => {
+            console.warn('AI organisation bridge unavailable, returning mock response.');
+            return {
+              batchId: 'mock-batch',
+              model: 'mock',
+              mode: request.mode ?? 'local',
+              slices: 0,
+              entries: 0,
+              state: request.state ?? {},
+              summary: {
+                text: 'AI organisation is unavailable in this environment. Connect to the Electron runtime to request live suggestions.',
+              },
+              responses: [],
+            };
+          },
     }),
     [bridge],
   );
@@ -324,6 +343,11 @@ const FileSandboxApp = () => {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null);
   const history = useMemo(() => createUndoRedo(200), []);
   const [error, setError] = useState<string | null>(null);
+  const [aiInstructions, setAiInstructions] = useState('');
+  const [aiResult, setAiResult] = useState<AiBatchResult | null>(null);
+  const [aiState, setAiState] = useState<AiState | undefined>();
+  const [aiRunning, setAiRunning] = useState(false);
+  const aiBridgeAvailable = useMemo(() => Boolean(getSandboxBridge()?.organiseWithAi), []);
 
   useEffect(() => {
     if (!store.getState().tree) {
@@ -350,6 +374,11 @@ const FileSandboxApp = () => {
       setSelectedIds((previous) => previous.filter((id) => tree.nodes.has(id)));
     }
   }, [tree]);
+
+  useEffect(() => {
+    setAiState(undefined);
+    setAiResult(null);
+  }, [rootPath]);
 
   const mutateTree = (mutator: (draft: SandboxTree) => void) => {
     const current = store.getState().tree;
@@ -562,6 +591,37 @@ const FileSandboxApp = () => {
   const liveDiff = useMemo(() => (tree ? generateDiff(cloneTree(tree)) : null), [tree]);
   const folderOptions = useMemo(() => buildFolderOptions(tree), [tree]);
 
+  const handleOrganiseWithAi = async () => {
+    if (!tree) {
+      setError('Load a snapshot before requesting AI organisation.');
+      return;
+    }
+    if (!services.organiseWithAi) {
+      setError('AI organisation is not available in this build.');
+      return;
+    }
+    const activeRoot = store.getState().rootPath ?? tree.snapshotRootPath;
+    if (!activeRoot) {
+      setError('Select a root directory before requesting AI organisation.');
+      return;
+    }
+    try {
+      setAiRunning(true);
+      const result = await services.organiseWithAi({
+        rootPath: activeRoot,
+        freeText: aiInstructions,
+        state: aiState,
+      });
+      setAiResult(result);
+      setAiState(result.state);
+      setError(null);
+    } catch (organiseError) {
+      setError(organiseError instanceof Error ? organiseError.message : String(organiseError));
+    } finally {
+      setAiRunning(false);
+    }
+  };
+
   const handleSelect = (id: string, metaKey: boolean, shiftKey: boolean) => {
     setSelectedIds((prev) => {
       if (shiftKey && prev.length > 0 && tree) {
@@ -641,6 +701,14 @@ const FileSandboxApp = () => {
           <button type="button" onClick={handleApplyDiff}>
             Apply diff
           </button>
+          <button
+            type="button"
+            onClick={handleOrganiseWithAi}
+            disabled={!tree || aiRunning}
+            title={aiBridgeAvailable ? undefined : 'AI responses are simulated outside Electron'}
+          >
+            {aiRunning ? 'Requesting AI…' : 'Organise with AI'}
+          </button>
         </div>
         <div className="sandbox-meta">
           <span title={rootPath ?? ''}>Root: {rootPath ?? 'Sample sandbox'}</span>
@@ -649,6 +717,54 @@ const FileSandboxApp = () => {
         </div>
       </header>
       {error && <div className="sandbox-error">{error}</div>}
+      <section className="sandbox-ai-panel">
+        <h2>AI guidance</h2>
+        <p>
+          Provide optional instructions for the AI model. Up to 10% of the token budget is reserved for these
+          notes.
+        </p>
+        <textarea
+          value={aiInstructions}
+          onChange={(event) => setAiInstructions(event.target.value)}
+          placeholder="Describe the desired organisation outcome (optional)"
+          rows={3}
+        />
+        {aiResult ? (
+          <div className="ai-result-meta">
+            <span>
+              Last run batch {aiResult.batchId} via {aiResult.model} ({aiResult.mode}) — {aiResult.entries} entries
+              across {aiResult.slices} slice{aiResult.slices === 1 ? '' : 's'}.
+            </span>
+          </div>
+        ) : null}
+        {aiResult?.summary ? (
+          <div className="ai-summary">
+            {aiResult.summary.text ? <p>{aiResult.summary.text}</p> : null}
+            {aiResult.summary.highlights && aiResult.summary.highlights.length > 0 ? (
+              <ul>
+                {aiResult.summary.highlights.map((highlight, index) => (
+                  <li key={`highlight-${index}`}>{highlight}</li>
+                ))}
+              </ul>
+            ) : null}
+            {aiResult.summary.sections && aiResult.summary.sections.length > 0 ? (
+              <div className="ai-summary-sections">
+                {aiResult.summary.sections.map((section, index) => (
+                  <article key={`section-${index}`}>
+                    {section.title ? <h3>{section.title}</h3> : null}
+                    <p>{section.body}</p>
+                  </article>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        {!aiBridgeAvailable ? (
+          <p className="ai-bridge-warning">
+            Running outside the Electron runtime? AI suggestions are simulated with a mock response.
+          </p>
+        ) : null}
+      </section>
       <div className="sandbox-toolbar">
         <button type="button" onClick={() => handleCreate(preferredParent(), 'folder')}>
           New folder

@@ -21,6 +21,8 @@ import { generateSnapshot, persistSnapshot } from './snapshotBuilder';
 import { applyDiff as executeDiff, dryRunDiff } from './diffExecutor';
 import type { DiffApplyResponse } from '../types/diff';
 import type { Snapshot } from '../types/snapshot';
+import type { AiBatchResult, AiOrganiseRequest } from '../types/ai';
+import { runAiBatchOrganisation } from './ai/aiBatcher';
 
 class AppUpdater {
   constructor() {
@@ -90,6 +92,16 @@ ipcMain.handle('sandbox:createSnapshot', async (_event, rootPath: string) => {
   const snapshot = await generateSnapshot(rootPath);
   return decorateSnapshot(snapshot);
 });
+
+ipcMain.handle(
+  'sandbox:organiseWithAi',
+  async (_event, request: AiOrganiseRequest): Promise<AiBatchResult> => {
+    if (!request?.rootPath) {
+      throw new Error('rootPath is required for AI organisation');
+    }
+    return runAiBatchOrganisation(request);
+  },
+);
 
 ipcMain.handle('sandbox:previewDiff', async (_event, diff: Diff) => {
   const report = await dryRunDiff(diff);
