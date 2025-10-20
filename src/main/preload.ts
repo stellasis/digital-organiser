@@ -4,6 +4,7 @@ import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
 import type { DirectorySnapshot } from '../common/fileTypes';
 import type { Snapshot } from '../types/snapshot';
 import type { Diff, DiffApplyResponse, DiffDryRunReport } from '../types/diff';
+import type { AiBatchResult, AiOrganiseRequest } from '../types/ai';
 
 export type Channels = 'ipc-example';
 
@@ -45,6 +46,9 @@ const electronHandler = {
     },
     applyDiff(diff: Diff): Promise<DiffApplyResponse> {
       return ipcRenderer.invoke('sandbox:applyDiff', diff);
+    },
+    organiseWithAi(request: AiOrganiseRequest): Promise<AiBatchResult> {
+      return ipcRenderer.invoke('sandbox:organiseWithAi', request);
     },
   },
 };
