@@ -24,6 +24,15 @@ import type { Snapshot } from '../types/snapshot';
 import type { AiBatchResult, AiOrganiseRequest } from '../types/ai';
 import { runAiBatchOrganisation } from './ai/aiBatcher';
 
+if (process.argv.includes('--debug-ai')) {
+  if (!process.env.AI_LOG_VERBOSE) {
+    process.env.AI_LOG_VERBOSE = 'true';
+  }
+  if (!process.env.DEBUG_AI) {
+    process.env.DEBUG_AI = 'true';
+  }
+}
+
 class AppUpdater {
   constructor() {
     log.transports.file.level = 'info';

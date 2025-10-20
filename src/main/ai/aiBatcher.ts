@@ -1,5 +1,4 @@
 import crypto from 'crypto';
-import log from 'electron-log';
 import type {
   AiBatchRequestPayload,
   AiBatchResponsePayload,
@@ -14,8 +13,15 @@ import { resolveModelConfig, type AiModelConfig } from './modelConfig';
 import { streamSnapshotEntries } from './snapshotStream';
 import { sliceSnapshotEntries } from './snapshotSlicer';
 import { estimateTokensForJson, truncateTextForTokenBudget } from './tokenBudget';
-
-const logger = log.scope?.('ai-batcher') ?? log;
+import {
+  logBatchStart,
+  logRequest,
+  logResponse,
+  logMerge,
+  logSummary,
+  logError,
+  type RequestLogContext,
+} from '../../utils/aiLogger';
 
 export interface RunAiBatchOptions extends AiOrganiseRequest {
   fetchImpl?: typeof fetch;
@@ -128,24 +134,74 @@ const sendBatch = async (
   config: AiModelConfig,
   payload: AiBatchRequestPayload,
   fetchImpl: typeof fetch,
+  context: RequestLogContext,
 ): Promise<AiBatchResponsePayload> => {
   const requestBody = adaptRequestBody(payload, config);
-  const response = await fetchImpl(config.endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(config.headers ?? {}),
-    },
-    body: JSON.stringify(requestBody),
-  });
+  const startedAt = context.startedAt ?? Date.now();
+  let response: Response | undefined;
+  let rawText: string | undefined;
+  let parsedBody: unknown;
+  try {
+    response = await fetchImpl(config.endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(config.headers ?? {}),
+      },
+      body: JSON.stringify(requestBody),
+    });
 
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => '');
-    throw new Error(`AI request failed with ${response.status}: ${errorText}`);
+    const durationMs = Date.now() - startedAt;
+    rawText = await response.text();
+    if (rawText) {
+      try {
+        parsedBody = JSON.parse(rawText);
+      } catch {
+        parsedBody = rawText;
+      }
+    }
+
+    if (!response.ok) {
+      logError(new Error(`AI request failed with ${response.status}`), {
+        batchId: context.batchId,
+        sliceIndex: context.sliceIndex,
+        model: context.model,
+        mode: context.mode,
+        stage: 'response',
+        status: response.status,
+        payloadSnippet: context.payloadPreview,
+        responseSnippet: parsedBody ?? rawText,
+        durationMs,
+      });
+      throw new Error(`AI request failed with ${response.status}: ${rawText}`);
+    }
+
+    const adapted = adaptResponseBody(parsedBody ?? {}, config);
+    logResponse({
+      ...context,
+      status: response.status,
+      durationMs,
+      response: adapted,
+      rawBody: parsedBody,
+      headers: response.headers,
+    });
+    return adapted;
+  } catch (error) {
+    if (!(error as Error & { __aiLoggerLogged?: boolean }).__aiLoggerLogged) {
+      logError(error, {
+        batchId: context.batchId,
+        sliceIndex: context.sliceIndex,
+        model: context.model,
+        mode: context.mode,
+        stage: response ? 'response' : 'request',
+        status: response?.status,
+        payloadSnippet: context.payloadPreview,
+        responseSnippet: parsedBody ?? rawText,
+        durationMs: Date.now() - startedAt,
+      });
+    }
+    throw error;
   }
-
-  const json = await response.json();
-  return adaptResponseBody(json, config);
 };
 
 export const runAiBatchOrganisation = async (
@@ -180,36 +236,91 @@ export const runAiBatchOrganisation = async (
   let stateHash: string | undefined;
   let totalEntries = 0;
   let sliceCount = 0;
+  const startedAt = Date.now();
+  let failure: Error | null = null;
 
-  for await (const slice of sliceGenerator) {
-    const estimatedTokens = estimateTokensForJson(slice.entries);
-    logger.debug(
-      'Dispatching AI batch %s slice %d with %d entries (≈%d tokens)',
-      batchId,
-      slice.index,
-      slice.entries.length,
-      estimatedTokens,
-    );
-    totalEntries += slice.entries.length;
+  try {
+    for await (const slice of sliceGenerator) {
+      const estimatedTokens = estimateTokensForJson(slice.entries);
+      logBatchStart({
+        batchId,
+        sliceIndex: slice.index,
+        entryCount: slice.entries.length,
+        approxChars: slice.approxChars,
+        estimatedTokens,
+        model: model.model,
+        mode: model.mode,
+        cursorToken,
+        sampleEntries: slice.entries,
+      });
 
-    const payload = buildRequestPayload(slice.entries, {
+      totalEntries += slice.entries.length;
+
+      const payload = buildRequestPayload(slice.entries, {
+        batchId,
+        model,
+        sliceIndex: slice.index,
+        cursorToken,
+        freeText: truncatedFreeText,
+        constraints,
+        stateHash,
+        stateIn: accumulatedState,
+      });
+
+      const requestContext = logRequest({
+        batchId,
+        sliceIndex: slice.index,
+        model: model.model,
+        mode: model.mode,
+        entryCount: slice.entries.length,
+        estimatedTokens,
+        maxTokens: model.maxInputTokens,
+        payload,
+        cursorToken,
+      });
+
+      const response = await sendBatch(model, payload, fetchImpl, requestContext);
+      responses.push(response);
+      accumulatedState = mergeState(accumulatedState, response.state_out);
+      summary = mergeSummary(summary, response.summary);
+      cursorToken = response.meta?.cursor?.next ?? cursorToken;
+      stateHash = response.meta?.state_hash_out ?? stateHash;
+      sliceCount += 1;
+
+      logMerge({
+        batchId,
+        sliceIndex: slice.index,
+        model: model.model,
+        mode: model.mode,
+        stateOut: response.state_out,
+        summary: response.summary ?? undefined,
+        cursorToken,
+        stateHash,
+        totalStateKeys: Object.keys(accumulatedState).length,
+      });
+    }
+  } catch (error) {
+    failure = error as Error;
+    if (!(failure as Error & { __aiLoggerLogged?: boolean }).__aiLoggerLogged) {
+      logError(failure, {
+        batchId,
+        model: model.model,
+        mode: model.mode,
+        stage: 'unknown',
+      });
+    }
+    throw error;
+  } finally {
+    logSummary({
       batchId,
-      model,
-      sliceIndex: slice.index,
-      cursorToken,
-      freeText: truncatedFreeText,
-      constraints,
-      stateHash,
-      stateIn: accumulatedState,
+      model: model.model,
+      mode: model.mode,
+      sliceCount,
+      entryCount: totalEntries,
+      durationMs: Date.now() - startedAt,
+      responses,
+      error: failure,
     });
-
-    const response = await sendBatch(model, payload, fetchImpl);
-    responses.push(response);
-    accumulatedState = mergeState(accumulatedState, response.state_out);
-    summary = mergeSummary(summary, response.summary);
-    cursorToken = response.meta?.cursor?.next ?? cursorToken;
-    stateHash = response.meta?.state_hash_out ?? stateHash;
-    sliceCount += 1;
   }
 
   return {
