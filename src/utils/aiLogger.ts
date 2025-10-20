@@ -104,6 +104,15 @@ const buildStatePreview = (state: AiState | undefined) => {
 const formatJson = (value: unknown) =>
   util.inspect(value, { colors: true, depth: 6, breakLength: 80, maxArrayLength: 20 });
 
+const formatJsonFull = (value: unknown) =>
+  util.inspect(value, {
+    colors: true,
+    depth: null,
+    breakLength: 100,
+    maxArrayLength: Number.POSITIVE_INFINITY,
+    maxStringLength: null,
+  });
+
 const buildPayloadPreview = (payload: AiBatchRequestPayload) => ({
   meta: payload.meta,
   snapshot: {
@@ -318,7 +327,15 @@ export interface ErrorLogInfo {
   sliceIndex?: number;
   model?: string;
   mode?: AiMode;
-  stage?: 'prepare' | 'request' | 'response' | 'merge' | 'summary' | 'unknown';
+  stage?:
+    | 'prepare'
+    | 'request'
+    | 'response'
+    | 'merge'
+    | 'summary'
+    | 'unknown'
+    | 'placement-request'
+    | 'placement-response';
   status?: number;
   retryAfterSeconds?: number;
   payloadSnippet?: unknown;
@@ -410,6 +427,13 @@ export const logResponse = (options: ResponseLogOptions) => {
   if (diagnostics && Object.keys(diagnostics).length) {
     details.push('diagnostics (preview):');
     details.push(indentBlock(formatJson(diagnostics)));
+  }
+  if (options.response !== undefined) {
+    details.push('response (full):');
+    details.push(indentBlock(formatJsonFull(options.response)));
+  } else if (options.rawBody !== undefined) {
+    details.push('response (raw):');
+    details.push(indentBlock(formatJsonFull(options.rawBody)));
   }
   emit(header, details);
 };
